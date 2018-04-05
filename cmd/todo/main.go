@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 
@@ -46,7 +49,11 @@ func add(text string) error {
 
 	f, err := os.OpenFile(dbPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		return fmt.Errorf("Cannot open filel %f: %v", dbPath, err)
+		return fmt.Errorf("Cannot open filel %s: %v", dbPath, err)
+	}
+
+	if err := gob.NewEncoder(f).Encode(int64(len(b))); err != nil {
+		return fmt.Errorf("Cannot encode length of a task to file: %v", err)
 	}
 
 	_, err = f.Write(b)
@@ -58,10 +65,41 @@ func add(text string) error {
 	if err != nil {
 		return fmt.Errorf("Cannot close file %s: %v", dbPath, err)
 	}
+	fmt.Println("Creating new record")
 	fmt.Println(proto.MarshalTextString(task))
 	return nil
 }
 
 func list() error {
+	b, err := ioutil.ReadFile(dbPath)
+	if err != nil {
+		return fmt.Errorf("Cannot read file %s: %v", dbPath, err)
+	}
+	for {
+		if len(b) == 0 {
+			return nil
+		} else if len(b) < 4 {
+			return fmt.Errorf("db file is too small: %d bytes", len(b))
+		}
+
+		var length int64
+		err = gob.NewDecoder(bytes.NewReader(b[:4])).Decode(&length)
+		if err != nil {
+			return fmt.Errorf("Cannot decode the legth of next message: %v", err)
+		}
+		b = b[4:]
+
+		var task todo.Task
+		if err := proto.Unmarshal(b[:length], &task); err != nil {
+			return fmt.Errorf("Cannot read task: %v", err)
+		}
+		b = b[length:]
+		if task.Done {
+			fmt.Print("👌 : ")
+		} else {
+			fmt.Print("⏰ : ")
+		}
+		fmt.Printf("%s\n", task.Text)
+	}
 	return nil
 }
